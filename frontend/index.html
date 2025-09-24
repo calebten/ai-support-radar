@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>AI Support Radar</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; line-height: 1.4; }
+      input, button { font-size: 16px; padding: 8px 10px; margin-right: 8px; }
+      textarea { width:100%; height:160px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow:auto; }
+      .row { display: flex; gap: 24px; flex-wrap: wrap; }
+      .col { flex: 1 1 300px; }
+      .hint { color: #555; }
+      .ok { color: #1a7f37; }
+      .err { color: #b42318; }
+    </style>
+  </head>
+  <body>
+    <h1>AI Support Radar</h1>
+    <p class="hint">Paste a public GitHub repo (e.g., <code>vercel/next.js</code>) and click Analyze. No private data needed.</p>
+    <div>
+      <input id="repo" placeholder="owner/repo" />
+      <input id="since" placeholder="since YYYY-MM-DD" />
+      <input id="until" placeholder="until YYYY-MM-DD" />
+      <button id="run">Analyze</button>
+    </div>
+    <p id="status" class="hint"></p>
+    <div class="row">
+      <div class="col">
+        <h3>Executive Summary</h3>
+        <div id="summary" class="ok"></div>
+      </div>
+      <div class="col">
+        <h3>Category Counts</h3>
+        <pre id="counts">{}</pre>
+      </div>
+      <div class="col">
+        <h3>Sentiment</h3>
+        <pre id="sentiments">{}</pre>
+      </div>
+    </div>
+
+    <h3>Raw Parsed Tickets (first 10)</h3>
+    <pre id="parsed">[]</pre>
+
+    <script>
+      async function postJSON(url, payload) {
+        const r = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload || {})
+        });
+        const data = await r.json();
+        if (!r.ok || data.error) throw new Error(data.error || ('HTTP '+r.status));
+        return data;
+      }
+
+      document.getElementById('run').onclick = async () => {
+        const repo = document.getElementById('repo').value.trim() || 'vercel/next.js';
+        const since = document.getElementById('since').value.trim();
+        const until = document.getElementById('until').value.trim();
+        const status = document.getElementById('status');
+        const summary = document.getElementById('summary');
+        const counts = document.getElementById('counts');
+        const sentiments = document.getElementById('sentiments');
+        const parsed = document.getElementById('parsed');
+
+        summary.textContent = '';
+        counts.textContent = '{}';
+        sentiments.textContent = '{}';
+        parsed.textContent = '[]';
+
+        try {
+          status.textContent = 'Fetching public issues...';
+          const issues = await postJSON('/api/fetch', { repo, since, until });
+
+          status.textContent = 'Analyzing with AI (batched)...';
+          const analyzed = await postJSON('/api/analyze', { issues });
+
+          status.textContent = 'Optional: posting Slack alert...';
+          try { await postJSON('/api/notify', analyzed); } catch (e) {}
+
+          status.textContent = 'Done.';
+          summary.textContent = analyzed.execSummary || '(no summary)';
+          counts.textContent = JSON.stringify(analyzed.counts || {}, null, 2);
+          sentiments.textContent = JSON.stringify(analyzed.sentiments || {}, null, 2);
+          parsed.textContent = JSON.stringify((analyzed.parsed || []).slice(0, 10), null, 2);
+        } catch (e) {
+          status.textContent = 'Error: ' + e.message;
+          status.className = 'err';
+        }
+      };
+    </script>
+  </body>
+</html>
